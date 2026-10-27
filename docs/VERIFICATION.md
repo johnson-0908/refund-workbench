@@ -111,8 +111,18 @@ python scripts/deployment_acceptance.py --project refund-deploy-test-local --env
 |`crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-backend:0.1.0`|`sha256:ab01c18d6aa32f4c2d50dea3fbe6914ec8e3cfb06b3a6f293d616d7890ee2578`|
 |`crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-web:0.1.0`|`sha256:b1b5b807f15152926961a623ed2eaba67096bd6fa0f1e9074dd7b71a801fb7dd`|
 
-发布应用平台为 **linux/amd64**；manifest 中额外的 unknown/unknown 是 BuildKit attestation，不代表 ARM 支持。需要不可变拉取时可使用上表的 `镜像@sha256:...`。服务器 IP 由部署者填写；没有登录或部署用户远端服务器。
+发布应用平台为 **linux/amd64**；manifest 中额外的 unknown/unknown 是 BuildKit attestation，不代表 ARM 支持。需要不可变拉取时可使用上表的 `镜像@sha256:...`。此阶段仅验证镜像发布；随后经明确授权执行的服务器验收见下一节，公网地址不写入公开仓库。
 
 随后对同一独立项目实际执行 `scripts/start.ps1 -Project <同一项目> -Pull`：五服务健康、切换前后业务 inspect 完全相同（三笔测试退款），浏览器刷新后原会话与记录保持。说明已验证的是私仓镜像运行，而不仅是本地 build tag。
 
 启动器最后安全回归：PowerShell 32/32（含创建时原子 owner-only ACL、失败不写密码、源码白名单和 junction 拒绝）；Windows PowerShell 5 的 `-Check` 通过；Git Bash 语法和实际配置检查通过，六组 saved-env 错误配置均拒绝且文件 hash 不变。Git Bash 检查不冒充原生 Linux 全栈验证；原生 Linux 的一键构建/98 项验收由仓库 Actions 在隔离 runner 执行，结果以对应运行记录为准。
+
+## 9. 原生 Linux CI 与授权服务器验收
+
+提交 `574af53` 的 [Actions 40488198137](https://github.com/johnson-0908/refund-workbench/actions/runs/40488198137) 已完成 success：Go 四包 race test / vet / build、三组 HTTP 验收、前端 86 测试及 audit、Linux 一键源码构建和 98 项容器验收均通过；两个隔离项目清理成功。此次运行耗时 4 分 54 秒，不作为生产容量指标。
+
+随后在明确授权的 Linux amd64 服务器部署相同不可变应用镜像。Docker Hub 下载慢时，改为 SSH 传输本机已验收中间件的 OCI 镜像归档；48 个 blob、归档 SHA256、原 index digest 与 RootFS 逐一核对，不替换镜像版本。五服务全部 healthy，仅 Web 映射宿主机端口，应用非 root/只读，配置权限 0600。原有 15 个容器的 ID 与启动时间保持不变。
+
+公网 API **41/41 通过**，覆盖匿名/来源/CSRF、三角色、企业隔离、退出撤销及虚构 A-1002 的 UNKNOWN→原请求查证成功。仅该测试订单产生退款，其他订单不变；服务器只读核对 `submit_calls=1`、`query_calls=1`、`effect_count=1`、`outbox_pending=0`。公网浏览器完成登录和成功详情回读。原始证据保存在私有 `evidence/`，不公开地址、实例标识、凭据或截图。
+
+公网仍为预置身份、HTTP、模拟资金的体验部署，不代表生产身份核验、TLS、HA、容量压测或真实支付验收。页面当前企业恢复可用于下一轮复测；未为交付自动清空已经验证的成功记录。

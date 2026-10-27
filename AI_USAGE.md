@@ -262,3 +262,56 @@ git diff --cached --check 发现七个前端测试文件有多余 EOF 空行。
 最终私仓拉取启动再次通过，版本仍为本次初始交付的 0.1.0。
 公开源码打包与 Git index 检查分别执行，不把工作树预检代替暂存区检查。
 ```
+
+## RUN-12 / Git 发布与原生 Linux CI
+
+```text
+[主任务 / PUBLISH SOURCE]
+显式暂存 89 个公开源码文件，公开门禁与 whitespace 检查通过。
+提交 574af53 并推送 main；远端 SHA 与本地一致。
+运行配置、凭据、截图、原始验收日志均未进入 Git。
+
+[主任务 / DELEGATE]
+frontend -> 只读跟踪本次提交的 GitHub Actions，失败时回传具体步骤。
+不把本机通过当作 Linux race 或服务器验收。
+
+[frontend / OBSERVE]
+Actions run 40488198137：2026-10-27 10:24:20Z -> 10:29:14Z，success。
+Go 四包真实 race test / vet / build、三组 HTTP 验收均通过。
+前端 86 测试通过，npm audit 0 漏洞。
+Linux start.sh 从源码构建五容器，部署验收 98 PASS / 0 FAIL。
+两个隔离项目的清理步骤成功；没有改源码或再次推送。
+```
+
+## RUN-13 / 远端部署与公网验收
+
+```text
+[主任务 / INSPECT]
+收到明确目标后才连接 SSH；核对架构、Docker、内存、磁盘和空闲端口。
+记录原有 15 个运行容器的 ID/启动时间；采用独立目录、项目、网络和数据卷。
+应用使用已发布的不可变 digest，数据库密码在服务器随机生成，文件权限 0600。
+
+[主任务 / RUN -> ADJUST]
+私仓应用镜像拉取成功，Docker Hub 中间件下载过慢。
+精确取消本次部署的 pull 进程，不停现有容器、不改全局代理。
+middleware -> 导出本机已验收的三个中间件镜像，逐一校验 OCI blob 与 RootFS。
+经 SSH 传输，服务器 SHA256 校验、docker load、原 digest/RootFS 回读均通过。
+使用原 Compose 与配置执行 up -d --pull never --wait，五服务全部 healthy。
+
+[backend / TOOLING]
+准备云安全组只读查询及显式单端口操作助手，默认不写，凭据只在内存。
+主任务核对实例元数据、EIP、网卡和独享安全组，确认缺少 Web 入站规则。
+只新增 TCP 8080；回读原 12 条规则全部保留，只增加 1 条。
+主机防火墙先备份再放行同一 Web 端口；未发布数据库或中间件端口。
+
+[frontend / PUBLIC API]
+公网 41/41：匿名、Origin/CSRF、只读与跨商户保护、退出撤销通过。
+只操作虚构 A-1002：UNKNOWN -> 原号查证 SUCCEEDED，活动投影可见。
+其他订单保持原样，成功记录保留，没有恢复/清库。
+
+[主任务 / VERIFY]
+公网浏览器完成登录、刷新及成功详情回读。
+服务器只读 inspect：submit_calls=1、query_calls=1、effect_count=1、outbox_pending=0。
+原有 15 个容器仍运行且启动时间不变；五个新服务 restart_count=0。
+只公开脱敏结论；服务器地址、实例标识、截图、运行配置和凭据不入 Git。
+```
