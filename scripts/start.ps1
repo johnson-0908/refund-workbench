@@ -145,7 +145,7 @@ MYSQL_PASSWORD=$password
 ENABLE_DATA_RESET=true
 REGISTRY=crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com
 IMAGE_NAMESPACE=pandacount
-IMAGE_TAG=0.1.0
+IMAGE_TAG=0.1.1
 "@
   $temp = Join-Path $runtime ('.start-' + [Guid]::NewGuid().ToString('N') + '.tmp')
   try {

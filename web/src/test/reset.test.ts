@@ -27,9 +27,25 @@ function setup(allowReset = true) {
   }
   return { api, wb, setVersion }
 }
-afterEach(() => instances.splice(0).forEach((wb) => wb.dispose()))
+afterEach(() => { instances.splice(0).forEach((wb) => wb.dispose()); vi.unstubAllGlobals() })
 
 describe('merchant-scoped initial data restoration', () => {
+  it.each([false, true])('reloads confirmed reset data on HTTP even when notification transports fail: %s', async (blocked) => {
+    vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
+    if (blocked) {
+      vi.stubGlobal('BroadcastChannel', class { onmessage = null; postMessage() { throw new DOMException('blocked') }; close() {} })
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('blocked') })
+    }
+    const { api, wb, setVersion } = setup()
+    await wb.restoreSession()
+    setVersion(1)
+    expect(await wb.resetData('恢复初始数据')).toBe(true)
+    expect(api.orders).toHaveBeenCalledTimes(2)
+    expect(wb.orders.value).toEqual([{ ...order(), data_version: 1 }])
+    expect(wb.resetNotice.value).toContain('已恢复 4 笔')
+    expect(wb.resetError.value).toBe('')
+    expect(wb.session.value).not.toBeNull()
+  })
   it('requires the server permission and the exact confirmation phrase', async () => {
     const denied = setup(false); await denied.wb.restoreSession()
     await denied.wb.resetData('恢复初始数据')

@@ -95,7 +95,7 @@ services:
     logging: *bounded-logging
 
   backend:
-    image: ${REGISTRY:-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com}/${IMAGE_NAMESPACE:-pandacount}/refund-workbench-backend:${IMAGE_TAG:-0.1.0}
+    image: ${REGISTRY:-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com}/${IMAGE_NAMESPACE:-pandacount}/refund-workbench-backend:${IMAGE_TAG:-0.1.1}
     environment:
       HTTP_ADDR: 0.0.0.0:18080
       ALLOW_NON_LOOPBACK_HTTP: "true"
@@ -137,7 +137,7 @@ services:
     logging: *bounded-logging
 
   web:
-    image: ${REGISTRY:-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com}/${IMAGE_NAMESPACE:-pandacount}/refund-workbench-web:${IMAGE_TAG:-0.1.0}
+    image: ${REGISTRY:-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com}/${IMAGE_NAMESPACE:-pandacount}/refund-workbench-web:${IMAGE_TAG:-0.1.1}
     ports:
       - "${BIND_IP:-127.0.0.1}:${WEB_PORT:-8080}:8080"
     depends_on:

@@ -121,7 +121,7 @@ MYSQL_PASSWORD=$password
 ENABLE_DATA_RESET=true
 REGISTRY=crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com
 IMAGE_NAMESPACE=pandacount
-IMAGE_TAG=0.1.0
+IMAGE_TAG=0.1.1
 EOF
   # Atomic no-clobber installation. A concurrent invocation must not overwrite it.
   ln -- "$temp" "$config" 2>/dev/null || [[ -f $config ]] || die 'Could not install private configuration'

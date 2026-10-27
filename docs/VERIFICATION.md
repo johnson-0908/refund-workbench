@@ -126,3 +126,23 @@ python scripts/deployment_acceptance.py --project refund-deploy-test-local --env
 公网 API **41/41 通过**，覆盖匿名/来源/CSRF、三角色、企业隔离、退出撤销及虚构 A-1002 的 UNKNOWN→原请求查证成功。仅该测试订单产生退款，其他订单不变；服务器只读核对 `submit_calls=1`、`query_calls=1`、`effect_count=1`、`outbox_pending=0`。公网浏览器完成登录和成功详情回读。原始证据保存在私有 `evidence/`，不公开地址、实例标识、凭据或截图。
 
 公网仍为预置身份、HTTP、模拟资金的体验部署，不代表生产身份核验、TLS、HA、容量压测或真实支付验收。页面当前企业恢复可用于下一轮复测；未为交付自动清空已经验证的成功记录。
+
+## 10. HTTP 首次登录回归与 0.1.1 修复
+
+用户反馈“首次进入没有数据，刷新才出现”。公网 Chrome 实际复现：会话已登录、页面显示空列表，但 `crypto.randomUUID is not a function` 中断了后续订单/动态请求。之前的 41 项公网 API 验收及刷新后的详情回读**没有覆盖首次登录直接呈现数据**，不能据此判定该浏览器路径已经通过。
+
+原因：HTTP/IP 不是安全上下文；`randomUUID` 在该环境不可用，而 localhost 开发环境和默认 jsdom 模拟未暴露此差异。改为统一 UUID helper：优先原生实现，否则用 `getRandomValues` 生成符合 UUIDv4 版本/variant 位的随机标识；没有安全随机源时拒绝创建新退款，绝不使用弱随机。跨页通知构造/发送/storage 异常不再中断已接受的登录、注销和恢复。通知仍为尽力送达，焦点重验和服务端会话/CSRF 检查保留。
+
+本次验证：
+
+- 先新增真实 AntD App 首次登录链的失败回归：仅移除 `randomUUID` 后出现同一症状；修复后通过。
+- `cd web && npm test`：8 个文件、**97/97**；`npm run build`：TypeScript 和 Vite 成功。
+- `pwsh -NoProfile -File scripts/test-start.ps1`：**32/32**；Web 容器静态契约 **7/7**；公开门禁测试 23 PASS / 2 个 Windows symlink 权限 SKIP。
+- 发布 `web:0.1.1`：`sha256:17b64641a46103d62153f72ce8c8517055e85985289cae4ee526d0dba473a8bd`，linux/amd64；远端 manifest 回读、服务器按 digest 拉取成功。
+- `backend:0.1.1` 复用 0.1.0 已验证的相同 digest `sha256:ab01c18d6aa32f4c2d50dea3fbe6914ec8e3cfb06b3a6f293d616d7890ee2578`，没有后端代码修改或重新构建。
+- 服务器先保存原 Compose，再只重建 Web；其余 **19 个容器**的 ID、启动时间、健康状态和重启数不变，业务只读 inspect 前后相同。未恢复初始数据、清库或重启中间件；五服务 healthy。
+- 公网 Chrome 加载新资源 `index-Ct8HHKsG.js` 后退出再登录，A 直接显示 4 单；再切换 B 直接显示 1 单，过程中没有再次刷新、没有新增控制台错误。已打开旧页面仍须刷新一次加载新资源，这不等同修复前每次登录都需刷新。
+
+这次只重跑补丁相关测试与浏览器路径；第 9 节旧提交的完整 Linux race/98 项验收不冒充新提交的 CI。API/单元测试与真实部署浏览器验证应互相补充，不使用“100% 无缺陷”表述。
+
+浏览器约束依据：[MDN randomUUID](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)、[MDN getRandomValues](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues)。

@@ -20,7 +20,7 @@ function setup() {
   const wb = useWorkbench(api); instances.push(wb)
   return { api, wb }
 }
-afterEach(() => { instances.splice(0).forEach((wb) => wb.dispose()); vi.useRealTimers() })
+afterEach(() => { instances.splice(0).forEach((wb) => wb.dispose()); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('session lifecycle and permissions', () => {
   it('never reads business data before session restoration succeeds', async () => {
@@ -49,6 +49,56 @@ describe('session lifecycle and permissions', () => {
     expect(wb.canRead.value).toBe(true); expect(wb.canCreate.value).toBe(false); expect(wb.canReconcile.value).toBe(false)
     await wb.selectOrder('A-1001'); await wb.submitRefund('reason')
     expect(api.submit).not.toHaveBeenCalled()
+  })
+  it('completes login, initial reads and server logout when HTTP has no randomUUID', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
+    const { api, wb } = setup()
+    api.session.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED', ''))
+    await wb.restoreSession()
+    expect(await wb.login('a-write')).toBe(true)
+    expect(api.orders).toHaveBeenCalledOnce()
+    expect(wb.orders.value).toEqual([order()])
+    expect(wb.authError.value).toBe('')
+    await wb.logout()
+    expect(api.logout).toHaveBeenCalledOnce()
+    expect(wb.session.value).toBeNull()
+    expect(wb.logoutPending.value).toBe(false)
+  })
+  it('retains one cryptographic refund key across HTTP network retries without randomUUID', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
+    const { api, wb } = setup()
+    await wb.restoreSession(); await wb.selectOrder('A-1001')
+    api.submit.mockRejectedValueOnce(new TypeError('lost response'))
+    expect(await wb.submitRefund('客户取消')).toBe(false)
+    const key = api.submit.mock.calls[0]![2]
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(await wb.submitRefund('不得改变原申请')).toBe(true)
+    expect(api.submit.mock.calls[1]![2]).toBe(key)
+    expect(api.submit.mock.calls[1]![1]).toBe('客户取消')
+  })
+  it('does not let unavailable notification transports interrupt accepted login or server logout', async () => {
+    const postMessage = vi.fn(() => { throw new DOMException('blocked', 'InvalidStateError') })
+    vi.stubGlobal('BroadcastChannel', class { onmessage = null; postMessage = postMessage; close() {} })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError') })
+    const { api, wb } = setup()
+    api.session.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED', ''))
+    await wb.restoreSession()
+    expect(await wb.login('a-write')).toBe(true)
+    expect(wb.orders.value).toEqual([order()])
+    await wb.logout()
+    expect(api.logout).toHaveBeenCalledOnce()
+    expect(wb.session.value).toBeNull()
+    expect(wb.logoutPending.value).toBe(false)
+    expect(postMessage).toHaveBeenCalledTimes(2)
+  })
+  it('does not send a refund when no cryptographic random source is available', async () => {
+    vi.stubGlobal('crypto', {})
+    const { api, wb } = setup()
+    await wb.restoreSession(); await wb.selectOrder('A-1001')
+    expect(await wb.submitRefund('客户取消')).toBe(false)
+    expect(api.submit).not.toHaveBeenCalled()
+    expect(wb.actionError.value).toContain('无法生成安全请求标识')
+    expect(wb.pendingIntent.value).toBeNull()
   })
   it('does not let a late invalidated login release the busy state owned by a newer login', async () => {
     const { api, wb } = setup(), first = deferred<AuthSession>(), second = deferred<AuthSession>()

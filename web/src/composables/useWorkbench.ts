@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { api as defaultApi, ApiError, type WorkbenchApi } from '../lib/api'
+import { createUUID } from '../lib/uuid'
 import type { Activity, AuthSession, IdentityId, Order, Permission, Refund } from '../lib/types'
 
 interface Intent { key: string; reason: string }
@@ -248,7 +249,11 @@ export function useWorkbench(api: WorkbenchApi = defaultApi, storage: Storage | 
     const order = detail.value
     if (!order || !canCreate.value || actionLoading.value || resetLoading.value || order.refund || order.status !== 'PAID') return false
     const old = loadIntent(order.order_id)
-    const intent = old ?? { key: crypto.randomUUID(), reason }
+    let intent: Intent
+    try { intent = old ?? { key: createUUID(), reason } } catch {
+      actionError.value = '当前浏览器无法生成安全请求标识，请更换浏览器后重试。'
+      return false
+    }
     if (!intent.reason.trim() || Array.from(intent.reason).length > 200) {
       actionError.value = '请填写 1–200 个字符的退款原因，不能仅为空格。'
       return false
@@ -389,16 +394,23 @@ export function useWorkbench(api: WorkbenchApi = defaultApi, storage: Storage | 
 
   const syncKey = 'yishuld:session-change:v1'
   const resetSyncKey = 'yishuld:data-reset:v1'
-  const channel = typeof window.BroadcastChannel === 'function' ? new window.BroadcastChannel(syncKey) : null
+  let channel: BroadcastChannel | null = null
+  try {
+    if (typeof window.BroadcastChannel === 'function') channel = new window.BroadcastChannel(syncKey)
+  } catch { /* Storage events and focus revalidation remain available. */ }
+  function notifyChange(key: string, payload: { type: 'session-change' } | { type: 'data-reset'; merchant_id: string; data_version: number }) {
+    // Notifications are best effort, never a prerequisite for an accepted login,
+    // logout revocation, or reset reload. CSRF binding still fences other tabs' reads.
+    let event
+    try { event = { ...payload, nonce: createUUID() } } catch { return }
+    try { channel?.postMessage(event) } catch { /* Try storage independently. */ }
+    try { localStorage.setItem(key, JSON.stringify(event)) } catch { /* Focus revalidates when both transports are unavailable. */ }
+  }
   function notifySessionChange() {
-    const event = { type: 'session-change', nonce: crypto.randomUUID() }
-    channel?.postMessage(event)
-    try { localStorage.setItem(syncKey, JSON.stringify(event)) } catch { /* BroadcastChannel is the fallback. */ }
+    notifyChange(syncKey, { type: 'session-change' })
   }
   function notifyDataReset(merchantId: string, version: number) {
-    const event = { type: 'data-reset', merchant_id: merchantId, data_version: version, nonce: crypto.randomUUID() }
-    channel?.postMessage(event)
-    try { localStorage.setItem(resetSyncKey, JSON.stringify(event)) } catch { /* BroadcastChannel fallback. */ }
+    notifyChange(resetSyncKey, { type: 'data-reset', merchant_id: merchantId, data_version: version })
   }
   function remoteDataReset(merchantId: unknown, version: unknown) {
     if (typeof merchantId !== 'string' || merchantId !== user.value?.merchant_id || resetLoading.value) return

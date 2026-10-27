@@ -315,3 +315,35 @@ middleware -> 导出本机已验收的三个中间件镜像，逐一校验 OCI b
 原有 15 个容器仍运行且启动时间不变；五个新服务 restart_count=0。
 只公开脱敏结论；服务器地址、实例标识、截图、运行配置和凭据不入 Git。
 ```
+
+## RUN-14 / 公网首次登录空列表回归
+
+```text
+[用户反馈 -> 主任务 / REPRODUCE]
+首次登录工作区为空，刷新后才有数据。
+在公网 HTTP/IP 的 Chrome 重现：登录成功，但通知代码抛出
+TypeError: crypto.randomUUID is not a function，后续数据加载没有执行。
+纠正先前验收口径：API 通过和刷新回读没有覆盖首次登录首屏。
+
+[主任务 / DELEGATE]
+frontend -> 限定 web/src：先锁定实际登录链失败测试，再修复和回归。
+backend / middleware -> 只读梳理实际实现，输出私有讲解/面试题，不编造经历。
+
+[frontend / RED -> GREEN]
+真实 AntD App mount，session 返回 401，正常提交登录；只移除 randomUUID。
+登录状态已写入，但缺少 orders/activity 请求；恢复原 UUID 的对照组通过。
+新增 createUUID helper，用 getRandomValues 安全降级，退款重试保留原键。
+隔离通知构造、postMessage 和 localStorage 异常，不能截断登录/注销/恢复。
+97/97 前端测试通过，TypeScript 和生产构建通过。
+
+[middleware / REVIEW]
+只读审阅安全随机、幂等和会话隔离，无阻塞问题。
+说明跨页广播不是可靠传输；保留焦点恢复和服务端校验作为兜底。
+
+[主任务 / RELEASE -> VERIFY]
+复核源码，重跑前端97、启动配置32、容器静态7及公开门禁测试。
+构建并推送不可变 Web 0.1.1；backend 0.1.1 复用原已验收 digest。
+服务器备份 Compose，只重建 Web；其他19容器和业务 inspect 保持不变。
+公网新资源加载后，退出再登录直接显示 A4 单，切 B 直接1单，无新增控制台错误。
+没有用恢复/清库掩盖问题，原截图与回归记录保持私有。
+```

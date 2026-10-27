@@ -59,6 +59,28 @@ describe('real Ant Design Vue session and ERP rendering', () => {
     expect(wrapper.find('#refund-reason').exists()).toBe(false)
     expect(wrapper.text()).toContain('当前账号仅可查看退款信息')
   })
+  it.each([true, false])('loads orders on the first real login without a page refresh (randomUUID available: %s)', async (hasRandomUUID) => {
+    if (!hasRandomUUID) vi.stubGlobal('crypto', {
+      getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+      randomUUID: undefined,
+    })
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === '/api/auth/session') return unauthorized()
+      if (url === '/api/auth/login') return json(authSession())
+      if (url === '/api/orders') return json({ items: [order()] })
+      return json({ items: [], available: true, data_version: 0 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountApp(); await flushPromises()
+    expect(wrapper.find('[data-testid="login-page"]').exists()).toBe(true)
+    await wrapper.find('form').trigger('submit'); await flushPromises()
+    expect(wrapper.find('[data-testid="erp-shell"]').exists()).toBe(true)
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      '/api/auth/session', '/api/auth/login', '/api/orders', '/api/activity',
+    ])
+    expect(wrapper.find('.orders-table').text()).toContain('A-1001')
+    expect(wrapper.find('[data-testid="orders-empty"]').exists()).toBe(false)
+  })
   it('hides channel reconciliation for read-only users even with an unresolved refund', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, _init?: RequestInit) => {
       if (url === '/api/auth/session') return json(authSession('a-read'))

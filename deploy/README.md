@@ -7,13 +7,13 @@
 应用镜像默认路径（私有仓库）：
 
 ```text
-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-backend:0.1.0
-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-web:0.1.0
+crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-backend:0.1.1
+crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-web:0.1.1
 ```
 
-两个 `0.1.0` 镜像已经构建、推送并从私仓回读，平台为 **linux/amd64**；精确 digest 与本机空卷验收见 [验证记录](../docs/VERIFICATION.md)。这不代表服务器已部署或公网已验收。后端使用固定官方 Go `1.26.10-alpine3.23` 构建、Alpine `3.23.7` 运行；两者及 MySQL/Redis/Kafka 均锁定 manifest digest。Dockerfile 不包含密码或登录凭据。
+当前默认版本为 `0.1.1`，平台为 **linux/amd64**：Web 修复 HTTP 首次登录，后端复用 `0.1.0` 已验收镜像的同一 digest；两个版本标签均已推送并回读。精确 digest、本机空卷验收及经授权的公网补丁验证见 [验证记录](../docs/VERIFICATION.md)。镜像发布与目标服务器部署分别记录。后端使用固定官方 Go `1.26.10-alpine3.23` 构建、Alpine `3.23.7` 运行；两者及 MySQL/Redis/Kafka 均锁定 manifest digest。Dockerfile 不包含密码或登录凭据。
 
-应用仍是选择企业/角色的免密虚构业务入口，任何能访问页面的人都能选择经办身份；Cookie、CSRF 和租户隔离不能替代真实身份核验。HTTP IP 访问不加密 Cookie。应只向可信测试人员开放，限制防火墙/安全组来源；生产需另行完成身份提供方、TLS、授权管理和运维保障。本次不自动修改服务器防火墙或现有服务。
+应用仍是选择企业/角色的免密虚构业务入口，任何能访问页面的人都能选择经办身份；Cookie、CSRF 和租户隔离不能替代真实身份核验。HTTP IP 访问不加密 Cookie。应只向可信测试人员开放，限制防火墙/安全组来源；生产需另行完成身份提供方、TLS、授权管理和运维保障。启动脚本不会自动修改服务器防火墙或其他现有服务。
 
 ## 一键启动：只有 Docker 也能运行
 
@@ -67,7 +67,7 @@ bash scripts/start.sh --project refund-server --host 0.0.0.0 --port 8080 --origi
 DEPLOY_NAMESPACE=yishuld-refund-server
 REGISTRY=crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com
 IMAGE_NAMESPACE=pandacount
-IMAGE_TAG=0.1.0
+IMAGE_TAG=0.1.1
 BIND_IP=0.0.0.0
 WEB_PORT=8080
 APP_ORIGIN=http://实际服务器IP:8080
@@ -132,6 +132,8 @@ docker compose --env-file .env.deploy -f compose.deploy.yaml up -d --wait --wait
 
 日志按单容器 10 MB × 3 份轮转。分享诊断前再次检查不含 Cookie、CSRF、数据库密码或个人信息。MySQL 初始化密码变量只对**首次空卷**创建账号生效；修改 env 文件不会自动轮换已有数据库密码，切勿用删除卷“修复密码”。密码轮换需有备份并同步修改账号与应用配置。
 
+新配置默认使用 `0.1.1`；已有 `.runtime/start-<项目>.env` 保留其原有版本，不会悄悄升级。需要升级时显式修改该文件的 `IMAGE_TAG`，若 Compose 已使用 digest 固定，则须显式替换相应 digest。
+
 升级前备份数据库与配置，确认新版本兼容；只调整 `IMAGE_TAG`（或在 Compose 中改为经过确认的应用镜像 digest），然后 `pull`、`up -d --wait`，保持原 namespace/卷/密码。不要把“容器启动成功”作为资金业务验收，也不要无备份回退数据库结构。
 
 ## 5. 源码构建（维护人员）
@@ -139,8 +141,8 @@ docker compose --env-file .env.deploy -f compose.deploy.yaml up -d --wait --wait
 从源码根目录构建，构建过程不读取 `.env.deploy`、不需要数据库凭据：
 
 ```sh
-docker build -f Dockerfile.backend -t crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-backend:0.1.0 .
-docker build -f Dockerfile.web -t crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-web:0.1.0 .
+docker build -f Dockerfile.backend -t crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-backend:0.1.1 .
+docker build -f Dockerfile.web -t crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-workbench-web:0.1.1 .
 ```
 
 推送必须使用明确授权的仓库身份；此文档中的命令不会自动推送或修改其他仓库。当前 Dockerfile 可针对目标架构构建，是否已交付多架构镜像以实际 manifest 为准，不假定服务器架构。

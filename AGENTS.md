@@ -62,6 +62,7 @@
 - Go 集成仅用 `refund_test`；三组 HTTP 验收串行独占 `refund_acceptance`。不得指向 `refund_demo` 或服务器库。
 - 部署验收使用名称以 `refund-deploy-test-` 开头的独立 Compose 项目、空卷及 loopback 空闲端口；禁止复用用户业务卷。
 - 前端必须通过测试、TypeScript 与生产构建；新增写操作需覆盖禁用态、错误、重试及会话变化竞态。
+- 公网 HTTP/IP 与 localhost 的浏览器能力不同；首屏验收必须退出后重新登录、切换企业，不能用手动刷新后的数据显示代替。UUID 等浏览器 API 需能力检测和安全随机降级；跨页通知异常不得截断已接受的登录/注销/维护主流程。
 - 容器需验证五服务健康、仅 Web 端口暴露、匿名拒绝、租户/角色隔离、真实退款/UNKNOWN/恢复闭环及持久化重启。单个 healthcheck 不等同 E2E。
 - 依赖审计为特定时间/数据库的扫描结果，不是无漏洞保证。性能报告必须写明数据量、并发、请求数、延迟分位数和错误率，不外推生产 SLA。
 - 发布前运行 `python scripts/public_release_check.py` 检查 Git index，及相应测试；`--worktree` 用于尚未初始化 Git 的源码预检，不替代 index 检查。
