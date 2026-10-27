@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM golang:1.26.10-alpine3.23@sha256:34414731924cf2263160f0021f5cf6e1807382d85248f7cb419d4187b96d5e43 AS build
+WORKDIR /src
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download && go mod verify
+COPY backend/ ./
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/refund-server ./cmd/server \
+    && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/refund-admin ./cmd/admin
+
+FROM alpine:3.23.7@sha256:ff7f0c727dd796aa36787bfcd9a64bf35a6ce72a73451b3359fde849b6703d63
+RUN addgroup -S -g 10001 refund \
+    && adduser -S -D -H -u 10001 -G refund refund
+WORKDIR /app
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=10001:10001 /out/refund-server /out/refund-admin /app/
+USER 10001:10001
+ENV HTTP_ADDR=0.0.0.0:18080
+EXPOSE 18080
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
+    CMD ["/app/refund-server", "healthcheck"]
+ENTRYPOINT ["/app/refund-server"]

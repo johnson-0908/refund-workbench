@@ -1,0 +1,14 @@
+# Optional source-build overlay; no private registry login is needed.
+services:
+  backend:
+    image: refund-workbench-backend:local
+    pull_policy: build
+    build:
+      context: ${BUILD_CONTEXT:-.}
+      dockerfile: Dockerfile.backend
+  web:
+    image: refund-workbench-web:local
+    pull_policy: build
+    build:
+      context: ${BUILD_CONTEXT:-.}
+      dockerfile: Dockerfile.web

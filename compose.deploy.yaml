@@ -1,0 +1,170 @@
+# Standalone deployment: this file has no source, SQL, or config bind mounts.
+# Required: APP_ORIGIN and two distinct random 64-hex-character SQL passwords.
+# Keep DEPLOY_NAMESPACE stable on upgrades; it scopes the three persistent volumes.
+name: ${DEPLOY_NAMESPACE:-yishuld-refund-server}
+
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.4@sha256:c831a0f11348d402b43d77453e17d770be2eef356615a2823fe0f5a0d6c8b9af
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set a unique random 64-character hex MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: refund_demo
+      MYSQL_USER: refundapp
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set a different random 64-character hex MYSQL_PASSWORD}
+      TZ: UTC
+    # Validate without printing either secret. This runs before MySQL's official
+    # entrypoint; the image creates only refund_demo and grants only that schema.
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        case "$$MYSQL_ROOT_PASSWORD" in *[!0-9a-fA-F]*|'') echo 'MYSQL_ROOT_PASSWORD must be 64 random hex characters' >&2; exit 1;; esac
+        case "$$MYSQL_PASSWORD" in *[!0-9a-fA-F]*|'') echo 'MYSQL_PASSWORD must be 64 random hex characters' >&2; exit 1;; esac
+        if [ "$${#MYSQL_ROOT_PASSWORD}" -ne 64 ] || [ "$${#MYSQL_PASSWORD}" -ne 64 ] || [ "$$MYSQL_ROOT_PASSWORD" = "$$MYSQL_PASSWORD" ]; then
+          echo 'MySQL requires two distinct random 64-character hex passwords' >&2; exit 1
+        fi
+        exec /usr/local/bin/docker-entrypoint.sh mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_bin
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql --protocol=TCP -h127.0.0.1 -u$$MYSQL_USER -e 'SELECT 1' $$MYSQL_DATABASE >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: ${MYSQL_MEMORY_LIMIT:-1g}
+    pids_limit: 256
+    logging: *bounded-logging
+
+  redis:
+    image: redis:7.4@sha256:bd28fff4b665fdf1b73e8b5b73ec05d2f858f4fa3c8ea0d7c9bc09f7f6bf7039
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    networks: [private]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: ${REDIS_MEMORY_LIMIT:-256m}
+    pids_limit: 128
+    logging: *bounded-logging
+
+  kafka:
+    image: apache/kafka:4.1.1@sha256:0bc1bb2478f45b6cea78864df86acdc11e8df2c5172477819a4d12942cbe5d40
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: ${KAFKA_MEMORY_LIMIT:-1g}
+    pids_limit: 512
+    logging: *bounded-logging
+
+  backend:
+    image: ${REGISTRY:-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com}/${IMAGE_NAMESPACE:-pandacount}/refund-workbench-backend:${IMAGE_TAG:-0.1.0}
+    environment:
+      HTTP_ADDR: 0.0.0.0:18080
+      ALLOW_NON_LOOPBACK_HTTP: "true"
+      AUTH_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set APP_ORIGIN to the exact browser origin e.g. http://server-ip:8080}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: refund_demo
+      MYSQL_USER: refundapp
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set a unique random 64-character hex MYSQL_PASSWORD}
+      REDIS_ADDR: redis:6379
+      REDIS_PREFIX: "refundworkbench:server:v1:"
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: refund.events
+      KAFKA_GROUP: refund-workbench-activity
+      ENABLE_DEMO_BEARER: "false"
+      ENABLE_DATA_RESET: ${ENABLE_DATA_RESET:-false}
+      ALLOW_DOCKER_DEMO_RESET: "true"
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+    networks: [private]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "/app/refund-server", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 30s
+    restart: unless-stopped
+    mem_limit: ${BACKEND_MEMORY_LIMIT:-384m}
+    pids_limit: 128
+    logging: *bounded-logging
+
+  web:
+    image: ${REGISTRY:-crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com}/${IMAGE_NAMESPACE:-pandacount}/refund-workbench-web:${IMAGE_TAG:-0.1.0}
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    depends_on:
+      backend: {condition: service_healthy}
+    networks: [edge, private]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    mem_limit: ${WEB_MEMORY_LIMIT:-128m}
+    pids_limit: 128
+    logging: *bounded-logging
+
+networks:
+  edge: {}
+  private:
+    internal: true
+
+volumes:
+  mysql-data: {}
+  redis-data: {}
+  kafka-data: {}

@@ -1,0 +1,104 @@
+name: Source quality and isolated integration
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # Public fictional credentials for fresh, runner-local Compose volumes only.
+      TEST_MYSQL_DSN: demo:demo-refund-only@tcp(127.0.0.1:3307)/refund_test?parseTime=true&loc=UTC
+      TEST_REDIS_ADDR: 127.0.0.1:6379
+      TEST_KAFKA_BROKERS: 127.0.0.1:19092
+    steps:
+      - name: Checkout source without persisting credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Check staged publication surface and container contracts
+        run: |
+          python3 scripts/test_public_release_check.py
+          python3 scripts/public_release_check.py
+          python3 scripts/test_web_container.py
+
+      - name: Start fresh local MySQL, Redis and Kafka
+        # Acceptance helpers deliberately use this same project name. GitHub-hosted
+        # runners are isolated; no existing developer or server project is touched.
+        run: docker compose -f compose.yaml -p yishuld-refund up -d --wait --wait-timeout 300
+
+      - name: Verify Go with real isolated middleware
+        working-directory: backend
+        run: |
+          go mod verify
+          go test -race -count=1 -timeout=10m ./...
+          go vet ./...
+          go build ./...
+
+      - name: Real HTTP, authorization and reset acceptance
+        # Reviewed for Linux: executable suffix/creationflags are conditional.
+        # All three share refund_acceptance and MUST run serially.
+        run: |
+          python3 scripts/acceptance.py
+          python3 scripts/auth_acceptance.py
+          python3 scripts/reset_acceptance.py
+
+      - name: Stop development middleware before the five-container test
+        # Release runner memory; keep these test volumes until final cleanup.
+        run: docker compose -f compose.yaml -p yishuld-refund stop
+
+      - name: Frontend locked dependencies, tests, production build and audit
+        working-directory: web
+        run: |
+          npm ci --no-fund
+          npm test
+          npm run build
+          npm audit --audit-level=high
+
+      - name: Exercise the Linux one-command source build and isolated deployment
+        # Generates only ignored local credentials. Builds locally, never pushes.
+        run: bash scripts/start.sh --project refund-deploy-test-ci --host 127.0.0.1 --port 28080
+
+      - name: Verify the real five-container deployment through Nginx
+        run: >-
+          python3 scripts/deployment_acceptance.py
+          --project refund-deploy-test-ci
+          --env-file .runtime/start-refund-deploy-test-ci.env
+          --base-url http://127.0.0.1:28080
+
+      - name: Remove only the disposable five-container test project
+        if: always()
+        run: |
+          config=.runtime/start-refund-deploy-test-ci.env
+          if [ -f "$config" ]; then
+            docker compose --env-file "$config" -f compose.deploy.yaml -p refund-deploy-test-ci down --volumes --remove-orphans
+          fi
+
+      - name: Remove only the disposable development test project and volumes
+        if: always()
+        run: docker compose -f compose.yaml -p yishuld-refund down --volumes --remove-orphans
