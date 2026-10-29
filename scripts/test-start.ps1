@@ -83,6 +83,7 @@ $stage = New-SourceBuildContext
 $staged = @(Get-ChildItem -LiteralPath $stage -File -Recurse)
 Check 'BuildKit context is ASCII-only even from a Unicode checkout' ($stage -notmatch '[^\x20-\x7E]')
 Check 'context includes the exact required Docker build inputs' ((Test-Path (Join-Path $stage 'Dockerfile.backend')) -and (Test-Path (Join-Path $stage 'deploy/nginx.conf')))
+Check 'reviewed logo is staged with identical bytes' ((Get-FileHash -LiteralPath (Join-Path $stage 'web/src/assets/yishuld-logo.png')).Hash -eq (Get-FileHash -LiteralPath (Join-Path $root 'web/src/assets/yishuld-logo.png')).Hash)
 Check 'context rejects private config/runtime/dependencies by allowlist' (@($staged | Where-Object { $_.Name -like '.env*' -or $_.FullName -match '[\\/](\.runtime|node_modules|evidence|samples|cases)[\\/]' }).Count -eq 0)
 $secrets = @(Get-Content -LiteralPath (Join-Path $root ".runtime/start-$project.env") | Where-Object { $_ -match '^MYSQL_(ROOT_)?PASSWORD=' } | ForEach-Object { ($_ -split '=',2)[1] })
 $found = @(Select-String -LiteralPath $staged.FullName -Pattern $secrets -SimpleMatch -List)
@@ -94,13 +95,14 @@ $originalRoot=$root
 $originalBuildRoot=$env:REFUND_BUILD_ROOT
 $fixture=Join-Path $runtime ('source-fixture-' + [Guid]::NewGuid().ToString('N'))
 try {
-  foreach ($relative in @('.dockerignore','Dockerfile.backend','Dockerfile.web','backend/go.mod','backend/go.sum','web/package.json','web/package-lock.json','web/index.html','web/tsconfig.json','web/vite.config.ts','deploy/nginx.conf','backend/cmd/server/main.go','backend/internal/app/app.go','web/src/allowed.ts','web/src/allowed.vue','web/src/allowed.css','web/src/synthetic-sensitive.txt','web/src/synthetic-sensitive.json','web/src/.env.synthetic','backend/internal/app/synthetic-sensitive.csv')) {
+  foreach ($relative in @('.dockerignore','Dockerfile.backend','Dockerfile.web','backend/go.mod','backend/go.sum','web/package.json','web/package-lock.json','web/index.html','web/tsconfig.json','web/vite.config.ts','deploy/nginx.conf','backend/cmd/server/main.go','backend/internal/app/app.go','web/src/allowed.ts','web/src/allowed.vue','web/src/allowed.css','web/src/assets/yishuld-logo.png','web/src/assets/unreviewed.png','web/src/synthetic-sensitive.txt','web/src/synthetic-sensitive.json','web/src/.env.synthetic','backend/internal/app/synthetic-sensitive.csv')) {
     $target=Join-Path $fixture $relative
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
     [IO.File]::WriteAllText($target,'SYNTHETIC_TEST_FIXTURE_NOT_A_REAL_SECRET')
   }
   $root=$fixture
   $fixtureStage=New-SourceBuildContext
+  Check 'binary exception permits only the exact reviewed logo path' ((Test-Path (Join-Path $fixtureStage 'web/src/assets/yishuld-logo.png')) -and -not (Test-Path (Join-Path $fixtureStage 'web/src/assets/unreviewed.png')))
   Check 'closed web extension allowlist copies only ts/vue/css' (
     (Test-Path (Join-Path $fixtureStage 'web/src/allowed.ts')) -and
     (Test-Path (Join-Path $fixtureStage 'web/src/allowed.vue')) -and

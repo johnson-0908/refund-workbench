@@ -82,7 +82,7 @@ function New-SourceBuildContext {
   if ((Get-Item -LiteralPath $base).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Build staging root must not be a link/junction.' }
   $stage = Join-Path $base ($Project + '-' + [Guid]::NewGuid().ToString('N'))
   [IO.Directory]::CreateDirectory($stage) | Out-Null
-  $files = @('.dockerignore','Dockerfile.backend','Dockerfile.web','backend/go.mod','backend/go.sum','web/package.json','web/package-lock.json','web/index.html','web/tsconfig.json','web/vite.config.ts','deploy/nginx.conf')
+  $files = @('.dockerignore','Dockerfile.backend','Dockerfile.web','backend/go.mod','backend/go.sum','web/package.json','web/package-lock.json','web/index.html','web/tsconfig.json','web/vite.config.ts','web/src/assets/yishuld-logo.png','deploy/nginx.conf')
   foreach ($folder in @('backend/cmd','backend/internal','web/src')) {
     Assert-NoSourceLinks (Join-Path $root $folder)
     foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $root $folder) -Recurse -Force)) {

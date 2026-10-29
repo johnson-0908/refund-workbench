@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -17,6 +18,14 @@ import subprocess
 from typing import Iterable
 
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
+# No extension-wide binary exemption. These exact bytes are reviewed separately
+# from text source; source/usage limitations are recorded in docs/BRAND_ASSETS.md.
+PINNED_BINARY_ASSETS = {
+    "web/src/assets/yishuld-logo.png": (
+        534086,
+        "ec6c2acc4307de4e81858a228d014c0b9d173ece3b006a7f723dcadd567cf0c2",
+    ),
+}
 ROOT_FILES = frozenset({
     ".dockerignore", ".gitignore", ".gitattributes", ".env.example",
     "AGENTS.md", "AI_USAGE.md", "DESIGN.md", "README.md", "LICENSE", "NOTICE",
@@ -27,7 +36,7 @@ EXACT_FILES = ROOT_FILES | frozenset({
     "backend/go.mod", "backend/go.sum", "web/package.json", "web/package-lock.json",
     "web/tsconfig.json", "web/vite.config.ts", "web/index.html",
     "deploy/.env.example", "deploy/README.md", "deploy/nginx.conf", "deploy/web-image-lock.json",
-})
+}) | frozenset(PINNED_BINARY_ASSETS)
 SOURCE_TREES = ("backend/cmd", "backend/internal", "web/src", "scripts", "docs", ".github/workflows")
 PRIVATE_PARTS = frozenset({
     ".git", ".runtime", "evidence", ".evidence", "logs", "log", "bin", "deps",
@@ -121,6 +130,11 @@ def scan_blob(path: str, data: bytes) -> list[Finding]:
         return [Finding(path, 0, "outside-source-allowlist")]
     if len(data) > MAX_SOURCE_BYTES:
         return [Finding(path, 0, "source-file-too-large")]
+    if path in PINNED_BINARY_ASSETS:
+        size, digest = PINNED_BINARY_ASSETS[path]
+        if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+            return [Finding(path, 0, "pinned-binary-asset-mismatch")]
+        return []
     if b"\0" in data:
         return [Finding(path, 0, "binary-source-file")]
     try:

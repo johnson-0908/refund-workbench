@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ArrowRightOutlined, BankOutlined, CheckOutlined, SafetyCertificateOutlined, SwapOutlined, UserOutlined } from '@ant-design/icons-vue'
+import { ArrowRightOutlined, BankOutlined, CheckOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { loginIdentities, type IdentityId } from '../lib/types'
+import BrandLogo from './BrandLogo.vue'
 
 defineProps<{ loading: boolean; busy: boolean; error: string; logoutPending: boolean }>()
 const emit = defineEmits<{ login: [identityId: IdentityId]; retryLogout: [] }>()
@@ -14,7 +15,7 @@ watch(merchantId, () => { identityId.value = roles.value[0]!.id })
 <template>
   <main class="login-page" data-testid="login-page">
     <section class="login-brand-panel">
-      <div class="login-brand"><span class="brand-mark"><SwapOutlined /></span><div>易数链动<small>企业管理平台</small></div></div>
+      <BrandLogo variant="login" />
       <div class="login-brand-copy"><span class="login-eyebrow">FINANCE WORKSPACE</span><h1>企业财务工作台</h1><p>订单与退款，一处掌握。</p><div class="login-illustration" aria-hidden="true"><div class="ledger-spine" /><div class="ledger-row"><span /><i /><i /></div><div class="ledger-row"><span /><i /><i /></div><div class="ledger-row"><span /><i /><i /></div><div class="ledger-check"><CheckOutlined /></div></div></div>
       <div class="login-brand-footer">易数链动 · 企业业务管理</div>
     </section>

@@ -120,9 +120,26 @@ class Acceptance:
             raise SafeFailure("unexpected-inspection-result") from error
 
     def inspect_business(self):
-        if not self.guard_complete:
-            raise SafeFailure("topology-not-verified")
-        return json.loads(self.compose("exec", "-T", "backend", "/app/refund-admin", "inspect"))
+        # A diagnostic must not run admin's startup migration. All reads share
+        # one read-only statement/snapshot; array order is canonicalized below.
+        fields = {
+            "orders": {"order_id": "id", **dict.fromkeys(("merchant_id", "amount_cents", "status"))},
+            "refunds": {"refund_id": "id", **dict.fromkeys(("order_id", "merchant_id", "amount_cents",
+                "provider_request_id", "reason", "status", "message", "created_at", "updated_at"))},
+            "channel_requests": dict.fromkeys(("provider_request_id", "order_id", "amount_cents", "status",
+                "mode", "submit_calls", "query_calls", "effect_count", "created_at", "updated_at")),
+        }
+        counts = ",".join(f"'{table}',(SELECT COUNT(*) FROM {table})" for table in
+                          ("orders", "refunds", "idempotency_keys", "channel_requests", "outbox_events"))
+        counts += ",'outbox_pending',(SELECT COUNT(*) FROM outbox_events WHERE published_at IS NULL)"
+        arrays = []
+        for table, columns in fields.items():
+            obj = ",".join(f"'{key}',{value or key}" for key, value in columns.items())
+            arrays.append(f"'{table}',(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT({obj})),JSON_ARRAY()) FROM {table})")
+        result = self.sql("SELECT JSON_OBJECT('database',DATABASE(),'counts',JSON_OBJECT(" + counts + ")," + ",".join(arrays) + ")")
+        for table, key in (("orders", "order_id"), ("refunds", "refund_id"), ("channel_requests", "provider_request_id")):
+            result[table].sort(key=lambda row: row[key])
+        return result
 
     def validate_target(self):
         self.check("project name is explicitly reserved for deployment acceptance",
@@ -333,6 +350,20 @@ class Acceptance:
             time.sleep(1)
         self.check(name, False)
 
+    def restart_backend(self):
+        backend = self.containers["backend"]
+        labels = json.loads(self.command(["docker", "inspect", "--format", "{{json .Config.Labels}}", backend]))
+        self.check("restart target is exactly the verified project's backend", labels.get("com.docker.compose.project") == self.project
+                   and labels.get("com.docker.compose.service") == "backend")
+        self.command(["docker", "restart", "--time", "20", backend], timeout=60)
+        def ready():
+            try:
+                response = self.request("GET", "/api/health")
+                return response.status == 200 and response.json().get("status") == "ok"
+            except (OSError, http.client.HTTPException, SafeFailure):
+                return False
+        self.wait_for("own backend becomes healthy after restart", ready, 60)
+
     def orders(self, session):
         response = self.request("GET", "/api/orders", session=session)
         if response.status != 200:
@@ -393,13 +424,46 @@ class Acceptance:
         self.check("SQL confirms one full-amount refund and one channel effect",
                    len(snapshot["refunds"]) == len(channel) == 1 and snapshot["refunds"][0]["status"] == "SUCCEEDED"
                    and int(snapshot["refunds"][0]["amount_cents"]) == 19900
+                   and int(channel[0]["amount_cents"]) == 19900 and channel[0]["status"] == "SUCCEEDED"
+                   and channel[0]["provider_request_id"] == snapshot["refunds"][0]["provider_request_id"]
                    and int(channel[0]["submit_calls"]) == int(channel[0]["effect_count"]) == 1)
         self.expect("another key cannot refund the same order again", self.request("POST", create, reason, session=a, key="different-key"), 409, "REFUND_EXISTS")
         self.expect("same key with a changed reason conflicts", self.request("POST", create, {"reason": "不同原因"}, session=a, key="deployment-same-key"), 409, "IDEMPOTENCY_CONFLICT")
-        unknown = self.request("POST", "/api/orders/A-1002/refunds", reason, session=a, key="unknown-key")
+        self.expect("same key with a changed order conflicts", self.request("POST", "/api/orders/A-1002/refunds", reason, session=a, key="deployment-same-key"), 409, "IDEMPOTENCY_CONFLICT")
+        replay = self.request("POST", create, reason, session=a, key="deployment-same-key")
+        self.check("same key replay returns the original current successful refund", replay.status == 200
+                   and replay.json()["refund_id"] == first_id and replay.json()["status"] == "SUCCEEDED")
+        after_conflicts = self.inspect_business()
+        self.check("replay and changed parameters have no extra financial effects",
+                   all(after_conflicts[key] == snapshot[key] for key in ("refunds", "channel_requests")))
+        # A fresh order, sixteen DISTINCT keys: not a replay of an already
+        # refunded order and not merely sixteen clicks blocked by the UI.
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            different = list(pool.map(lambda i: self.request("POST", "/api/orders/A-1002/refunds", reason,
+                        session=a, key=f"deployment-distinct-{i}"), range(16)))
+        self.check("sixteen concurrent distinct keys produce one creation and fifteen explained conflicts",
+                   sum(r.status == 201 for r in different) == 1
+                   and sum(r.status == 409 and r.json().get("error", {}).get("code") == "REFUND_EXISTS" for r in different) == 15)
+        unknown = next(r for r in different if r.status == 201)
         self.expect("lost channel response creates an explainable unknown refund", unknown, 201)
         unknown_data = unknown.json()
         self.check("transport uncertainty is never treated as final failure", unknown_data["status"] == "UNKNOWN")
+        before_unknown_restart = self.inspect_business()
+        concurrent_refunds = [r for r in before_unknown_restart["refunds"] if r["order_id"] == "A-1002"]
+        concurrent_channels = [r for r in before_unknown_restart["channel_requests"] if r["order_id"] == "A-1002"]
+        self.check("distinct-key concurrency leaves one SQL refund and one channel acceptance",
+                   len(concurrent_refunds) == len(concurrent_channels) == 1
+                   and concurrent_channels[0]["submit_calls"] == concurrent_channels[0]["effect_count"] == 1
+                   and concurrent_channels[0]["query_calls"] == 0)
+        self.restart_backend()
+        unknown_path = "/api/refunds/" + unknown_data["refund_id"]
+        restored = self.request("GET", unknown_path, session=a)
+        self.check("UNKNOWN and original identities survive a real backend restart before any query",
+                   restored.status == 200 and restored.json()["status"] == "UNKNOWN"
+                   and all(restored.json()[key] == unknown_data[key] for key in ("refund_id", "provider_request_id"))
+                   and all(self.inspect_business()[key] == before_unknown_restart[key] for key in ("refunds", "channel_requests")))
+        for session, path, method in ((b, unknown_path, "GET"), (b, unknown_path + "/reconcile", "POST")):
+            self.expect("cross-merchant refund access is rejected", self.request(method, path, session=session), 404, "NOT_FOUND")
         self.expect("viewer cannot reconcile", self.request("POST", "/api/refunds/" + unknown_data["refund_id"] + "/reconcile", session=viewer), 403, "FORBIDDEN")
         reconciled = self.request("POST", "/api/refunds/" + unknown_data["refund_id"] + "/reconcile", session=a)
         self.expect("query resolves the original channel result", reconciled, 200)
@@ -407,7 +471,9 @@ class Acceptance:
                    and all(reconciled.json()[key] == unknown_data[key] for key in ("refund_id", "provider_request_id")))
         failed = self.request("POST", "/api/orders/A-1003/refunds", reason, session=a, key="rejected-key")
         self.expect("explicit channel rejection creates a failed refund", failed, 201)
-        self.check("only explicit rejection produces the failed terminal state", failed.json()["status"] == "FAILED")
+        self.check("only explicit rejection produces a failed terminal state with a readable reason",
+                   failed.json()["status"] == "FAILED" and bool(failed.json().get("message", "").strip()))
+        self.expect("failed refund cannot be resubmitted with a new key", self.request("POST", "/api/orders/A-1003/refunds", reason, session=a, key="retry-failed"), 409, "REFUND_EXISTS")
         self.expect("unpaid order is ineligible", self.request("POST", "/api/orders/A-1004/refunds", reason, session=a, key="unpaid-key"), 409, "ORDER_NOT_PAID")
         br = self.request("POST", "/api/orders/B-2001/refunds", reason, session=b, key="deployment-same-key")
         self.expect("same idempotency key is independently scoped to B", br, 201)
@@ -419,6 +485,10 @@ class Acceptance:
                    and not any(row["order_id"] == "A-1004" for row in snapshot["channel_requests"]))
         old_a_ids = {first_id, unknown_data["refund_id"], failed.json()["refund_id"]}
         b_id = br.json()["refund_id"]
+        for session in (a, viewer):
+            for method, suffix in (("GET", ""), ("POST", "/reconcile")):
+                self.expect("A writer and viewer cannot access B refund objects", self.request(method,
+                            "/api/refunds/" + b_id + suffix, session=session), 404, "NOT_FOUND")
         def published_activity():
             aa, ba = self.activity(a), self.activity(b)
             return (aa.get("available") and ba.get("available") and old_a_ids.issubset({item["refund_id"] for item in aa["items"]})
@@ -482,18 +552,7 @@ class Acceptance:
             (current := self.activity(a)).get("available") and any(item["refund_id"] == new_id for item in current["items"])
             and not old_a_ids.intersection(item["refund_id"] for item in current["items"])))
         before_restart = self.inspect_business()
-        backend = self.containers["backend"]
-        labels = json.loads(self.command(["docker", "inspect", "--format", "{{json .Config.Labels}}", backend]))
-        self.check("restart target is exactly the verified project's backend", labels.get("com.docker.compose.project") == self.project
-                   and labels.get("com.docker.compose.service") == "backend")
-        self.command(["docker", "restart", "--time", "20", backend], timeout=60)
-        def ready():
-            try:
-                response = self.request("GET", "/api/health")
-                return response.status == 200 and response.json().get("status") == "ok"
-            except (OSError, http.client.HTTPException, SafeFailure):
-                return False
-        self.wait_for("own backend becomes healthy after restart", ready, 60)
+        self.restart_backend()
         after_restart = self.inspect_business()
         self.check("refund, channel and order identities survive backend restart",
                    all(before_restart[key] == after_restart[key] for key in ("refunds", "channel_requests", "orders")))

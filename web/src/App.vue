@@ -3,9 +3,10 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { AppstoreOutlined, ArrowRightOutlined, AuditOutlined, CheckCircleOutlined, ClockCircleOutlined,
   BankOutlined, ExclamationCircleOutlined, FileSearchOutlined, LockOutlined, LogoutOutlined,
-  ReloadOutlined, RollbackOutlined, SafetyCertificateOutlined, SearchOutlined, SwapOutlined, WalletOutlined } from '@ant-design/icons-vue'
+  ReloadOutlined, RollbackOutlined, SafetyCertificateOutlined, SearchOutlined, WalletOutlined } from '@ant-design/icons-vue'
 import StatusBadge from './components/StatusBadge.vue'
 import LoginPage from './components/LoginPage.vue'
+import BrandLogo from './components/BrandLogo.vue'
 import { useWorkbench } from './composables/useWorkbench'
 import { dateTime, money, statusInfo } from './lib/format'
 import type { Order } from './lib/types'
@@ -79,7 +80,7 @@ onUnmounted(wb.dispose)
     <LoginPage v-if="!user || authLoading" :loading="authLoading" :busy="authBusy" :error="authError" :logout-pending="logoutPending" @login="wb.login" @retry-logout="wb.logout" />
     <div v-else class="app-shell" data-testid="erp-shell">
       <aside class="sidebar">
-        <a href="#" class="brand" aria-label="易数链动企业管理"><span class="brand-mark"><SwapOutlined /></span><span>易数链动<small>企业管理平台</small></span></a>
+        <a href="#" class="sidebar-brand" aria-label="易数链动企业管理"><BrandLogo variant="sidebar" /></a>
         <div class="sidebar-label">财务管理</div>
         <div class="nav-item active"><WalletOutlined /><span>订单退款</span><span class="nav-indicator" /></div>
         <div class="sidebar-note"><BankOutlined /><div>{{ user.merchant_name }}<p>企业财务工作台</p></div></div>

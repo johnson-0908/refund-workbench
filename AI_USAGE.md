@@ -347,3 +347,32 @@ backend / middleware -> 只读梳理实际实现，输出私有讲解/面试题�
 公网新资源加载后，退出再登录直接显示 A4 单，切 B 直接1单，无新增控制台错误。
 没有用恢复/清库掩盖问题，原截图与回归记录保持私有。
 ```
+
+## RUN-15 / 2026-10-29 一键隔离自动验收
+
+```text
+[主任务 / READ]
+读取现有启动、三套进程验收、五容器验收与前端测试。
+区分清单中的 UI 可演示部分与必须通过 API/SQL/进程证明的部分。
+本轮未委派子任务，未操作公网业务，未提交或推送 Git。
+
+[主任务 / IMPLEMENT]
+新增 verify.py / verify.ps1：自动冻结白名单源码、随机独立项目/空卷/端口、
+启动五服务、运行 HTTP/SQL 及前后端测试、输出中文 HTML/JSON/Markdown。
+复用锁定 Docker 构建阶段，无需宿主 Go/Node；真实 Go 测试只用本轮 refund_test。
+补充 16 个不同键并发、同键改订单冲突、UNKNOWN 时实际重启再查证。
+检查改为 MySQL 只读快照，不再通过含启动 migration 的 admin inspect 取证。
+
+[主任务 / FIX]
+中文路径源码暂存仅复制 ts/vue/css，发现现有 Logo PNG 会缺失。
+在两种启动脚本中只放行已审核的精确 Logo 路径，补字节一致/其他 PNG 排除测试。
+首次测试运行的 Windows 输出采用旧代码页，统一 CLI 为 UTF-8。
+
+[主任务 / VERIFY]
+初次完整隔离运行：113 项容器 HTTP/SQL 断言、123 项 Go（含子测试，4 包）、
+103 项前端（9 文件）通过；Go/前端均 0 SKIP，vet/build 通过。
+Python 守卫 55 PASS / 2 SKIP（Windows 实际创建 symlink 不可用，不计通过）；
+PowerShell 启动配置独立验证 34 PASS。测试后只停止本轮五个服务，保留卷/证据。
+前端为 jsdom/模拟 API，不声称本轮做过公网真实浏览器 E2E 或 Linux race。
+后续重跑的逐次结果与源码 SHA 清单保留在 ignored evidence/checklist-*。
+```

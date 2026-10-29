@@ -73,10 +73,28 @@ Go 服务本身默认关闭维护；一键配置可将 `ENABLE_DATA_RESET=false`
 - [docs/API.md](docs/API.md)：接口、错误码、配置、固定数据。
 - [docs/SECURITY.md](docs/SECURITY.md)：会话、越权、CSRF、容器与已知风险。
 - [docs/VERIFICATION.md](docs/VERIFICATION.md)：脱敏验证摘要、性能口径与未覆盖边界。
+- [docs/TEST_EXECUTION_2026-10-29.md](docs/TEST_EXECUTION_2026-10-29.md)：真实自动验收的公开脱敏日志，含逐项结果、耗时及 SKIP。
 - [AI_USAGE.md](AI_USAGE.md)：真实 AI 分工、调整过程与三项关键决策。
 - [AGENTS.md](AGENTS.md)：维护者/agent 的工程约束与发布门禁。
 
 ## 开发与测试
+
+### 一键自动验收（推荐复测入口）
+
+先启动 Docker，宿主只需 Python 3.11+、Git 和 PowerShell 7（Windows）/ Bash 4+（Linux），不需要宿主 Go、Node 或手动启动中间件：
+
+```powershell
+python scripts/verify.py
+# Windows 也可：./scripts/verify.ps1
+```
+
+脚本自动冻结本轮源码、随机生成隔离项目/空卷/空闲 loopback 端口，构建并启动前端、后端、MySQL、Redis、Kafka，执行公开清单对应的 HTTP/SQL 业务断言、16 个不同键并发、UNKNOWN 时重启、权限、恢复和事件链路，以及真实依赖 Go 测试、前端组件测试、类型检查和构建。
+
+完成后打开打印的 `evidence/checklist-<时间-随机值>/report.html`，也有 JSON/Markdown 和分阶段日志。失败返回非零退出码；未执行项明确标记 NOT_RUN，Go/前端 SKIP 不计通过。前端采用 jsdom/模拟 API，不冒充公网真实浏览器 E2E。
+
+**每次使用新项目，不接受公网 URL，不重置已有演示/服务器数据库。** 成功后只停止本轮容器，保留配置、卷与证据；失败保留现场。`python scripts/verify.py --keep-running` 可保留本轮测试站点供手动查看。重复运行会增加本地测试卷，请按报告项目名人工管理，禁止全局 prune。完整范围、手动 UI 流程和诊断见 [自动验收说明](docs/AUTOMATED_ACCEPTANCE.md)。
+
+### 开发环境的完整回归
 
 需要热更新时才使用以下开发模式（宿主需 Go / Node / Python / PowerShell，版本见 Dockerfile 与锁文件）。它与 8080 全容器模式独立，不要把两套数据库混为一谈：
 

@@ -146,3 +146,17 @@ python scripts/deployment_acceptance.py --project refund-deploy-test-local --env
 这次只重跑补丁相关测试与浏览器路径；第 9 节旧提交的完整 Linux race/98 项验收不冒充新提交的 CI。API/单元测试与真实部署浏览器验证应互相补充，不使用“100% 无缺陷”表述。
 
 浏览器约束依据：[MDN randomUUID](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)、[MDN getRandomValues](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues)。
+
+## 11. 一键隔离验收入口（2026-10-29）
+
+新增 `python scripts/verify.py`（Windows 可用 `./scripts/verify.ps1`），具体清单映射和公网 UI 手动范围见 [自动验收说明](AUTOMATED_ACCEPTANCE.md)。本轮在 Windows / Docker Desktop 的全新独立 Compose 项目和空卷实际执行，不使用既有开发或服务器数据。
+
+- 五服务源码构建、TypeScript、仅 Web loopback 暴露及健康检查通过。
+- 增强后的容器 HTTP/SQL 验收 **113 PASS**：16 个不同键竞争新订单只有 1 次受理；同键改原因/订单拒绝；UNKNOWN 时实际重启后端再查询；SQL/渠道金额及记录、权限、恢复与事件链路核对。
+- Go **123 PASS（含子测试，4 包），0 SKIP**，真实本轮 MySQL `refund_test`、Redis、Kafka；`go vet` / `go build` 通过，未启用 race detector。
+- 前端 **103 PASS（9 文件），0 SKIP**；这是 jsdom/模拟 API 组件和组合逻辑测试，不是公网真实浏览器 E2E。
+- Python 脚本/公开门禁/容器契约 **55 PASS / 2 SKIP**；两个实际创建 symlink 的 Windows 测试因环境能力跳过，不计通过。新增 runner 守卫 **18/18** 包含在 55 中。
+- `pwsh -NoProfile -File scripts/test-start.ps1`：**34 PASS**，含中文路径暂存 Logo 字节一致、拒绝其他 PNG；没有通过放开全部二进制扩展名解决构建问题。
+- 源码预检通过；未进行最终 Git index 发布批准、提交、镜像推送或云端 CI 运行。本入口不替代原三套共享 `refund_acceptance` 进程验收或生产安全审计。
+
+每次输出独立 `evidence/checklist-<轮次>/report.html`、JSON/Markdown、阶段日志及公开源码 SHA256 清单。PASS 仅针对报告所列层；未执行场景明确列出。成功只停止本轮服务、保留配置和卷；失败保留现场。原始报告不提交公开仓库。

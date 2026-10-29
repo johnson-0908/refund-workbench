@@ -71,7 +71,7 @@ prepare_build_context() {
   assert_no_source_links "$base"
   mkdir -p -- "$base"
   stage=$(mktemp -d "$base/$project-XXXXXXXX")
-  local -a files=(.dockerignore Dockerfile.backend Dockerfile.web backend/go.mod backend/go.sum web/package.json web/package-lock.json web/index.html web/tsconfig.json web/vite.config.ts deploy/nginx.conf)
+  local -a files=(.dockerignore Dockerfile.backend Dockerfile.web backend/go.mod backend/go.sum web/package.json web/package-lock.json web/index.html web/tsconfig.json web/vite.config.ts web/src/assets/yishuld-logo.png deploy/nginx.conf)
   for source in "$root/backend/cmd" "$root/backend/internal" "$root/web/src"; do
     assert_no_source_links "$source"
     [[ -z $(find "$source" -type l -print -quit) ]] || die 'Source tree contains a symbolic link'

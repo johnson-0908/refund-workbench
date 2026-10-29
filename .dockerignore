@@ -18,6 +18,8 @@
 !web/src/**/*.ts
 !web/src/**/*.vue
 !web/src/**/*.css
+# Sole pinned third-party image; integrity/source terms: docs/BRAND_ASSETS.md.
+!web/src/assets/yishuld-logo.png
 
 # Backend module/build/test inputs.
 !backend/

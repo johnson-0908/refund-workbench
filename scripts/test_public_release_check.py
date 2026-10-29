@@ -7,12 +7,103 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import public_release_check as gate
 
 
 def synthetic_token() -> str:
     return "gh" + "p_" + "SyntheticOnlyNotAnActualCredential" + "0" * 8
+
+
+class PinnedBrandAssetTests(unittest.TestCase):
+    """Exact original bytes only; no network and no Git writes for these tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(__file__).resolve().parents[1]
+        cls.asset = "web/src/assets/yishuld-logo.png"
+        cls.original = (cls.root / cls.asset).read_bytes()
+
+    def test_exact_original_is_the_only_pinned_binary(self):
+        self.assertEqual({self.asset}, set(gate.PINNED_BINARY_ASSETS))
+        self.assertEqual(534086, len(self.original))
+        self.assertEqual("ec6c2acc4307de4e81858a228d014c0b9d173ece3b006a7f723dcadd567cf0c2",
+                         gate.hashlib.sha256(self.original).hexdigest())
+        self.assertTrue(self.original.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertTrue(gate.source_allowed(self.asset))
+        self.assertEqual([], gate.scan_blob(self.asset, self.original))
+
+    def test_other_image_paths_do_not_inherit_exception(self):
+        for name in ("web/src/assets/another.png", "web/src/assets/Yishuld-logo.png",
+                     "web/src/assets/yishuld-logo.jpg", "web/src/assets/sub/yishuld-logo.png",
+                     "docs/yishuld-logo.png"):
+            with self.subTest(path=name):
+                self.assertFalse(gate.source_allowed(name))
+                self.assertEqual([gate.Finding(name, 0, "outside-source-allowlist")],
+                                 gate.scan_blob(name, self.original))
+
+    def test_replaced_truncated_appended_and_same_length_changed_content_is_rejected(self):
+        changed = self.original[:-1] + bytes([self.original[-1] ^ 1])
+        for data in (b"", b"safe-looking text", b"\0", self.original[:-1], self.original + b"extra", changed):
+            with self.subTest(size=len(data)):
+                self.assertEqual([gate.Finding(self.asset, 0, "pinned-binary-asset-mismatch")],
+                                 gate.scan_blob(self.asset, data))
+
+    def test_binary_in_regular_source_remains_rejected(self):
+        self.assertEqual([gate.Finding("web/src/logo.ts", 0, "binary-source-file")],
+                         gate.scan_blob("web/src/logo.ts", self.original))
+
+    def test_worktree_packaging_returns_original_bytes_and_rejects_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            asset = root / self.asset
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(self.original)
+            (asset.parent / "other.png").write_bytes(self.original)
+            files, findings = gate.collect_worktree_sources(root)
+            self.assertEqual([], findings)
+            self.assertEqual({self.asset: self.original}, files)
+            asset.write_bytes(self.original + b"changed")
+            files, findings = gate.collect_worktree_sources(root)
+            self.assertEqual({}, files)
+            self.assertEqual([gate.Finding(self.asset, 0, "pinned-binary-asset-mismatch")], findings)
+
+    def test_index_checks_index_bytes_not_safe_or_changed_worktree(self):
+        # Stub only Git transport: exercise the real index parser/blob validation.
+        # Existing GitIndexTests independently cover real isolated Git semantics.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            asset = root / self.asset
+            asset.parent.mkdir(parents=True)
+            for staged, worktree, expected in (
+                (self.original + b"changed", self.original,
+                 [gate.Finding(self.asset, 0, "pinned-binary-asset-mismatch")]),
+                (self.original, b"changed worktree", []),
+            ):
+                with self.subTest(staged_size=len(staged)):
+                    asset.write_bytes(worktree)
+                    def read(_root, *args):
+                        self.assertEqual(root, _root)
+                        if args == ("rev-parse", "--show-toplevel"):
+                            return str(root).encode() + b"\n"
+                        if args == ("ls-files", "--stage", "-z"):
+                            return f"100644 {'a' * 40} 0\t{self.asset}\0".encode()
+                        if args == ("cat-file", "-s", ":" + self.asset):
+                            return str(len(staged)).encode()
+                        if args == ("show", "--no-ext-diff", "--no-textconv", ":" + self.asset):
+                            return staged
+                        self.fail("unexpected Git read")
+                    with patch.object(gate, "git_read", side_effect=read):
+                        self.assertEqual((expected, 1), gate.scan_index(root))
+
+    def test_docker_context_has_only_exact_image_exception(self):
+        rules = (self.root / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        image_rules = [line for line in rules if line.startswith("!") and
+                       any(suffix in line.lower() for suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"))]
+        self.assertEqual(["!" + self.asset], image_rules)
+        for broad in ("!web/**", "!web/src/**", "!web/src/assets/**", "!**/*.png"):
+            self.assertNotIn(broad, rules)
 
 
 class ContentTests(unittest.TestCase):

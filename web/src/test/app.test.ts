@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installUI } from '../ui'
 import App from '../App.vue'
 import { authSession, deferred, order, refund, resetResult } from './fixtures'
+import logoUrl from '../assets/yishuld-logo.png'
 
 const wrappers: ReturnType<typeof mount>[] = []
 const nativeGetComputedStyle = window.getComputedStyle.bind(window)
@@ -16,6 +17,20 @@ beforeEach(() => {
 afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()); vi.unstubAllGlobals() })
 
 describe('real Ant Design Vue session and ERP rendering', () => {
+  it.each([false, true])('uses the official local wordmark on the visible login/sidebar entry (authenticated: %s)', async (authenticated) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/auth/session') return authenticated ? json(authSession()) : unauthorized()
+      return json({ items: [], available: true, data_version: 0 })
+    }))
+    const wrapper = mountApp(); await flushPromises()
+    const entry = wrapper.get(authenticated ? '.sidebar .sidebar-brand' : '.login-brand-panel')
+    const logo = entry.get(authenticated ? '.brand-logo--sidebar img' : '.brand-logo--login img')
+    expect(logo.attributes('src')).toBe(logoUrl)
+    expect(logo.attributes('alt')).toBe('易数链动')
+    expect(entry.findAll('.brand-logo')).toHaveLength(1)
+    expect(entry.find('.brand-mark, .anticon-swap').exists()).toBe(false)
+    expect(wrapper.findAll('.brand-logo')).toHaveLength(1)
+  })
   it('shows an independent login page without loading any business data when no session exists', async () => {
     const fetchMock = vi.fn(async (_url: string) => unauthorized())
     vi.stubGlobal('fetch', fetchMock)
