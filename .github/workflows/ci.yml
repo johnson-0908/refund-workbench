@@ -47,6 +47,7 @@ jobs:
           python3 scripts/public_release_check.py
           python3 scripts/test_web_container.py
           python3 scripts/test_verify.py
+          python3 scripts/test_start_sh.py
 
       - name: Start fresh local MySQL, Redis and Kafka
         # Acceptance helpers deliberately use this same project name. GitHub-hosted

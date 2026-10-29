@@ -160,3 +160,28 @@ python scripts/deployment_acceptance.py --project refund-deploy-test-local --env
 - 源码预检通过；未进行最终 Git index 发布批准、提交、镜像推送或云端 CI 运行。本入口不替代原三套共享 `refund_acceptance` 进程验收或生产安全审计。
 
 每次输出独立 `evidence/checklist-<轮次>/report.html`、JSON/Markdown、阶段日志及公开源码 SHA256 清单。PASS 仅针对报告所列层；未执行场景明确列出。成功只停止本轮服务、保留配置和卷；失败保留现场。原始报告不提交公开仓库。
+
+## 12. macOS 双击启动入口（2026-10-29）
+
+新增根目录 `start.command`，复用原启动流程，自动定位源码、按需打开 Docker Desktop，服务就绪后打开保存的 Origin。配置解析改用 Bash 3.2 支持的索引数组，保留重复键、必填项、密码、Origin、端口及配置不覆盖校验；不执行配置中的 shell 内容。
+
+本次环境为 macOS arm64、系统 Bash 3.2.57、Docker Engine 25.0.2、Compose 2.24.3：
+
+- `python3 scripts/test_start_sh.py`：12/12，0 SKIP；使用替身 Docker/open，覆盖生成/重入、0600 权限、缺失/重复/非法配置、已有卷缺配置、端口冲突、shell 内容不执行、启动失败不开页面及浏览器打开失败。
+- `./start.command --project refund-deploy-test-<独立名称> --port <空闲端口> --check`：真实 Docker/Compose 配置和端口检查通过；重复检查配置字节不变、文件权限 0600，未启动容器。
+- `python3 scripts/test_public_release_check.py`：25/25，0 SKIP；工作区源码预检通过，不代替后续发布的 Git index 门禁。
+- 临时 ZIP 打包并回读通过：包含 `start.command`、权限 0755，排除日志和私有运行配置；两个 shell 文件语法检查通过。
+
+未重新执行整套容器构建、真实退款流程或 Finder 人工双击验收；上述结果只验证本次启动入口和配置兼容性，不表示完整业务验收。
+
+## 13. macOS 双击停止入口（2026-10-29）
+
+新增 `stop.command`，默认只停止 `yishuld-refund-app`，自定义项目须传同名 `--project`。读取现有配置并核对项目名称，执行 Compose stop 后确认无运行中的服务；不删除配置、容器或卷，不退出 Docker Desktop。配置缺失、项目不匹配或 Docker 不可用时明确报错。
+
+同一 macOS/Bash 3.2 环境验证：
+
+- `python3 scripts/test_start_sh.py`：18/18，0 SKIP；新增六项停止回归，覆盖默认/指定项目、重复停止和配置保留、缺失/异常参数、项目不匹配/重复、Docker 不可用、停止失败不报成功。
+- 真实 Docker 隔离验证：以本机已有镜像在两个新的 `refund-deploy-test-*` 项目各启动一个测试容器；调用 `./stop.command --project <目标项目>` 后目标停止，另一个容器仍运行且启动时间不变，配置字节不变；重复停止成功，重新启动后卷内标记仍在。通过后仅清理这两个测试项目及其新建卷，结果保存在私有 `.runtime/stop-check-*/result.json`。
+- 公开门禁测试 25/25，0 SKIP；工作区源码预检、shell 语法检查通过；临时 ZIP 回读确认两个 `.command` 文件均以 0755 打包。
+
+上述真实容器验证只覆盖停止隔离和卷保留，未操作默认业务项目、未重跑完整五服务或退款验收，也未代替 Finder 人工双击检查及发布时的 Git index 门禁。

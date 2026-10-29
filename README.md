@@ -13,8 +13,14 @@
 ./scripts/start.ps1
 ```
 
+**Mac：双击项目根目录的 `start.command`**，自动打开 Docker Desktop，服务就绪后打开浏览器；无需 Homebrew 或另外安装 Bash。首次使用需先安装 Docker Desktop。也可在项目目录执行：
+
 ```sh
-# Linux / Bash 4+
+./start.command
+```
+
+```sh
+# Linux / macOS（Bash 3.2+）
 bash scripts/start.sh
 ```
 
@@ -119,7 +125,9 @@ Go 集成独占 `refund_test`；三套 HTTP 验收串行独占 `refund_acceptanc
 
 ## 停止、检查与交付
 
-一键启动结束会打印对应项目的安全停止命令，也可执行：
+**Mac：双击根目录 `stop.command`**，或在项目目录执行 `./stop.command`。只停止默认项目，保留容器、配置和数据，下次双击 `start.command` 即可继续使用；关闭网页或终端不会停止后台服务，也无需退出整个 Docker Desktop。
+
+自定义项目对应执行 `./stop.command --project refund-local-18088`，使用启动时相同的项目名称。一键启动结束也会打印对应项目的停止命令：
 
 ```sh
 docker compose --project-name yishuld-refund-app --env-file .runtime/start-yishuld-refund-app.env -f compose.deploy.yaml stop

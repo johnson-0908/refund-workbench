@@ -26,8 +26,12 @@ crpi-vpvynwydljgcai3w.cn-guangzhou.personal.cr.aliyuncs.com/pandacount/refund-wo
 ./scripts/start.ps1 -Project refund-local-18088 -Port 18088
 ```
 
+macOS 可直接双击根目录 `start.command`，或在项目目录执行 `./start.command`；自动打开 Docker Desktop 并等待就绪，随后调用相同启动脚本，成功后打开已保存的浏览器地址。使用系统 Bash 3.2，无需额外安装 Bash；首次需安装 Docker Desktop。
+
+停止时双击根目录 `stop.command`，或执行 `./stop.command`；自定义项目使用 `./stop.command --project <启动时的项目名>`。只执行该项目的 Compose stop，保留配置、容器及持久卷；不会退出 Docker Desktop。配置缺失、项目名称不匹配或 Docker 无法连接时会报错，不生成新配置。
+
 ```sh
-# Linux / Bash 4+
+# Linux / macOS（Bash 3.2+）
 bash scripts/start.sh
 # 自定义本地空闲端口：
 bash scripts/start.sh --project refund-local-18088 --port 18088

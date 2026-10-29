@@ -30,7 +30,7 @@ ROOT_FILES = frozenset({
     ".dockerignore", ".gitignore", ".gitattributes", ".env.example",
     "AGENTS.md", "AI_USAGE.md", "DESIGN.md", "README.md", "LICENSE", "NOTICE",
     "compose.yaml", "compose.build.yaml", "compose.deploy.yaml",
-    "Dockerfile.backend", "Dockerfile.web",
+    "Dockerfile.backend", "Dockerfile.web", "start.command", "stop.command",
 })
 EXACT_FILES = ROOT_FILES | frozenset({
     "backend/go.mod", "backend/go.sum", "web/package.json", "web/package-lock.json",

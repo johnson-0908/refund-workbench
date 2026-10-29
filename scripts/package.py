@@ -22,7 +22,7 @@ def main():
         for relative, data in sorted(sources.items()):
             entry = ZipInfo("refund-workbench/" + relative, (2026, 1, 1, 0, 0, 0))
             entry.compress_type = ZIP_DEFLATED
-            entry.external_attr = (0o100755 if relative.endswith(".sh") else 0o100644) << 16
+            entry.external_attr = (0o100755 if relative.endswith((".sh", ".command")) else 0o100644) << 16
             archive.writestr(entry, data)
     with ZipFile(TARGET) as archive:
         assert archive.testzip() is None

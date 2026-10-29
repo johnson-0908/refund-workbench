@@ -5,7 +5,7 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 project=yishuld-refund-app
 bind_address='' port='' origin='' pull=false check_only=false
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
-((BASH_VERSINFO[0] >= 4)) || die 'Bash 4+ is required'
+((BASH_VERSINFO[0] > 3 || (BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] >= 2))) || die 'Bash 3.2+ is required'
 usage() {
   printf '%s\n' 'Usage: bash scripts/start.sh [--host IPv4] [--port 8080] [--origin http://server:8080] [--project name] [--pull] [--check]'
 }
@@ -129,50 +129,63 @@ EOF
   unset password root_password
 fi
 
-# Do not source arbitrary shell code from a configuration file.
-declare -A settings=()
+# Indexed arrays also work with the Bash 3.2 shipped by macOS. Never source or
+# evaluate saved values; they may contain shell syntax and must remain data.
+setting_keys=() setting_values=() setting_count=0
+setting() {
+  local index
+  for ((index=0; index<setting_count; index++)); do
+    if [[ ${setting_keys[$index]} == "$1" ]]; then
+      printf '%s' "${setting_values[$index]}"
+      return 0
+    fi
+  done
+  return 1
+}
 while IFS= read -r line || [[ -n $line ]]; do
   line=${line%$'\r'}
   [[ -n $line && $line != \#* ]] || continue
   [[ $line =~ ^([A-Z][A-Z0-9_]*)=(.*)$ ]] || die 'Invalid saved config; it was not changed'
   key=${BASH_REMATCH[1]}; value=${BASH_REMATCH[2]}
-  [[ ! ${settings[$key]+exists} ]] || die 'Duplicate saved config key'
-  settings[$key]=$value
+  ! setting "$key" >/dev/null || die 'Duplicate saved config key'
+  setting_keys[$setting_count]=$key
+  setting_values[$setting_count]=$value
+  setting_count=$((setting_count + 1))
 done < "$config"
 for key in DEPLOY_NAMESPACE BIND_IP WEB_PORT APP_ORIGIN MYSQL_ROOT_PASSWORD MYSQL_PASSWORD SESSION_COOKIE_SECURE ENABLE_DATA_RESET; do
-  [[ ${settings[$key]+exists} ]] || die "Saved config is missing $key; it was not changed"
+  setting "$key" >/dev/null || die "Saved config is missing $key; it was not changed"
 done
-[[ ${settings[DEPLOY_NAMESPACE]} == "$project" ]] || die 'Saved project differs from requested project'
-valid_address "${settings[BIND_IP]}"; valid_port "${settings[WEB_PORT]}"; valid_origin "${settings[APP_ORIGIN]}"
-for key in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD; do [[ ${settings[$key]} =~ ^[0-9a-fA-F]{64}$ ]] || die "Saved $key must be 64 random hex characters"; done
-[[ ${settings[MYSQL_PASSWORD]} != "${settings[MYSQL_ROOT_PASSWORD]}" ]] || die 'Saved SQL passwords must be different'
-for key in SESSION_COOKIE_SECURE ENABLE_DATA_RESET; do [[ ${settings[$key]} == true || ${settings[$key]} == false ]] || die "Saved $key must be true or false"; done
-valid_transport "${settings[APP_ORIGIN]}" "${settings[SESSION_COOKIE_SECURE]}"
-[[ -z $bind_address || $bind_address == "${settings[BIND_IP]}" ]] || die 'Saved Host differs; edit saved config deliberately or use another --project'
-[[ -z $port || $port == "${settings[WEB_PORT]}" ]] || die 'Saved port differs; edit saved config deliberately or use another --project'
-[[ -z $origin || $origin == "${settings[APP_ORIGIN]}" ]] || die 'Saved Origin differs; edit saved config deliberately or use another --project'
-if [[ ${settings[BIND_IP]} != 127.* ]]; then printf '%s\n' 'Warning: remote access uses predefined identities, not real SSO. Restrict firewall/security-group sources; this script does not alter them.' >&2; fi
-if [[ ${settings[APP_ORIGIN]} == https://* ]]; then printf '%s\n' 'Warning: this Compose publishes HTTP only; configure your TLS reverse proxy separately.' >&2; fi
+[[ $(setting DEPLOY_NAMESPACE) == "$project" ]] || die 'Saved project differs from requested project'
+valid_address "$(setting BIND_IP)"; valid_port "$(setting WEB_PORT)"; valid_origin "$(setting APP_ORIGIN)"
+for key in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD; do [[ $(setting "$key") =~ ^[0-9a-fA-F]{64}$ ]] || die "Saved $key must be 64 random hex characters"; done
+[[ $(setting MYSQL_PASSWORD) != "$(setting MYSQL_ROOT_PASSWORD)" ]] || die 'Saved SQL passwords must be different'
+for key in SESSION_COOKIE_SECURE ENABLE_DATA_RESET; do [[ $(setting "$key") == true || $(setting "$key") == false ]] || die "Saved $key must be true or false"; done
+valid_transport "$(setting APP_ORIGIN)" "$(setting SESSION_COOKIE_SECURE)"
+[[ -z $bind_address || $bind_address == "$(setting BIND_IP)" ]] || die 'Saved Host differs; edit saved config deliberately or use another --project'
+[[ -z $port || $port == "$(setting WEB_PORT)" ]] || die 'Saved port differs; edit saved config deliberately or use another --project'
+[[ -z $origin || $origin == "$(setting APP_ORIGIN)" ]] || die 'Saved Origin differs; edit saved config deliberately or use another --project'
+if [[ $(setting BIND_IP) != 127.* ]]; then printf '%s\n' 'Warning: remote access uses predefined identities, not real SSO. Restrict firewall/security-group sources; this script does not alter them.' >&2; fi
+if [[ $(setting APP_ORIGIN) == https://* ]]; then printf '%s\n' 'Warning: this Compose publishes HTTP only; configure your TLS reverse proxy separately.' >&2; fi
 
 compose=(docker compose --project-name "$project" --env-file "$config" -f "$root/compose.deploy.yaml")
 $pull || compose+=(-f "$root/compose.build.yaml")
 # Override inherited values with saved settings, without logging the secrets.
 for key in REGISTRY IMAGE_NAMESPACE IMAGE_TAG DEPLOY_NAMESPACE BIND_IP WEB_PORT APP_ORIGIN MYSQL_ROOT_PASSWORD MYSQL_PASSWORD ENABLE_DATA_RESET SESSION_COOKIE_SECURE MYSQL_MEMORY_LIMIT REDIS_MEMORY_LIMIT KAFKA_MEMORY_LIMIT BACKEND_MEMORY_LIMIT WEB_MEMORY_LIMIT BUILD_CONTEXT; do
   unset "$key"
-  if [[ ${settings[$key]+exists} ]]; then export "$key=${settings[$key]}"; fi
+  if setting "$key" >/dev/null; then export "$key=$(setting "$key")"; fi
 done
 "${compose[@]}" config --quiet
 web_id=$("${compose[@]}" ps --status running --quiet web 2>/dev/null || true)
 if [[ -z $web_id ]]; then
   occupied=false
   if command -v ss >/dev/null 2>&1; then
-    [[ -z $(ss -H -ltn "sport = :${settings[WEB_PORT]}") ]] || occupied=true
+    [[ -z $(ss -H -ltn "sport = :$(setting WEB_PORT)") ]] || occupied=true
   elif command -v lsof >/dev/null 2>&1; then
-    ! lsof -nPiTCP:"${settings[WEB_PORT]}" -sTCP:LISTEN -t >/dev/null 2>&1 || occupied=true
+    ! lsof -nPiTCP:"$(setting WEB_PORT)" -sTCP:LISTEN -t >/dev/null 2>&1 || occupied=true
   else
     # Bash's local TCP probe is a best-effort fallback; Docker's bind is final.
     probe=127.0.0.1
-    if (exec 3<>"/dev/tcp/$probe/${settings[WEB_PORT]}") 2>/dev/null; then occupied=true; fi
+    if (exec 3<>"/dev/tcp/$probe/$(setting WEB_PORT)") 2>/dev/null; then occupied=true; fi
   fi
   ! $occupied || die 'Requested port is occupied; no process was stopped. Choose a free port deliberately.'
 fi
@@ -184,5 +197,5 @@ else
   if [[ $root == *[!\ -\~]* ]]; then prepare_build_context; fi
   "${compose[@]}" up -d --build --wait --wait-timeout 300
 fi
-printf 'Ready: %s\nProject: %s\nPrivate configuration preserved: %s\n' "${settings[APP_ORIGIN]}" "$project" "$config"
+printf 'Ready: %s\nProject: %s\nPrivate configuration preserved: %s\n' "$(setting APP_ORIGIN)" "$project" "$config"
 printf 'Stop without deleting data: docker compose --project-name %q --env-file %q -f %q stop\n' "$project" "$config" "$root/compose.deploy.yaml"
